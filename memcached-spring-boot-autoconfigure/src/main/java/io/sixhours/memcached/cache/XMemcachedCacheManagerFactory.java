@@ -15,22 +15,10 @@
  */
 package io.sixhours.memcached.cache;
 
-import net.rubyeye.xmemcached.CommandFactory;
-import net.rubyeye.xmemcached.MemcachedClientBuilder;
-import net.rubyeye.xmemcached.MemcachedSessionLocator;
-import net.rubyeye.xmemcached.XMemcachedClientBuilder;
-import net.rubyeye.xmemcached.auth.AuthInfo;
-import net.rubyeye.xmemcached.auth.PlainCallbackHandler;
-import net.rubyeye.xmemcached.aws.AWSElasticCacheClientBuilder;
-import net.rubyeye.xmemcached.command.BinaryCommandFactory;
-import net.rubyeye.xmemcached.command.TextCommandFactory;
-import net.rubyeye.xmemcached.impl.ArrayMemcachedSessionLocator;
-import net.rubyeye.xmemcached.impl.ElectionMemcachedSessionLocator;
-import net.rubyeye.xmemcached.impl.KetamaMemcachedSessionLocator;
-import net.rubyeye.xmemcached.impl.LibmemcachedMemcachedSessionLocator;
-import net.rubyeye.xmemcached.impl.PHPMemcacheSessionLocator;
-import net.rubyeye.xmemcached.impl.RandomMemcachedSessionLocaltor;
-import net.rubyeye.xmemcached.impl.RoundRobinMemcachedSessionLocator;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -40,7 +28,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Factory for the XMemcached {@link MemcachedCacheManager} instances.
+ * Factory for the Valkey {@link RedisCacheManager} instances.
  *
  * @author Igor Bolic
  * @author Sasa Bolic
@@ -53,80 +41,26 @@ public class XMemcachedCacheManagerFactory extends MemcachedCacheManagerFactory 
 
     @Override
     IMemcachedClient memcachedClient() throws IOException {
-        final List<InetSocketAddress> servers = properties.getServers();
-        final MemcachedCacheProperties.Provider provider = properties.getProvider();
-        final MemcachedCacheProperties.Protocol protocol = properties.getProtocol();
-        final MemcachedCacheProperties.HashStrategy hashStrategy = properties.getHashStrategy();
-        final MemcachedCacheProperties.Authentication authentication = properties.getAuthentication();
-
-        final MemcachedClientBuilder builder = builder(provider, servers);
-
-        if (builder instanceof AWSElasticCacheClientBuilder) {
-            ((AWSElasticCacheClientBuilder) builder)
-                    .setPollConfigIntervalMs(properties.getServersRefreshInterval().toMillis());
-        }
-
-        if (!authentication.isEmpty()) {
-            Map<InetSocketAddress, AuthInfo> authInfoMap = servers.stream()
-                    .collect(Collectors.toMap(
-                            Function.identity(),
-                            i -> new AuthInfo(new PlainCallbackHandler(
-                                    authentication.getUsername(),
-                                    authentication.getPassword()),
-                                    new String[]{authentication.getMechanism().asString()}
-                            )
-                    ));
-
-            builder.setAuthInfoMap(authInfoMap);
-        }
-
-        builder.setSessionLocator(hashStrategyToLocator(hashStrategy));
-        builder.setOpTimeout(properties.getOperationTimeout().toMillis());
-        builder.setCommandFactory(commandFactory(protocol));
-
-        return new XMemcachedClient(builder.build());
+        // This implementation is replaced with Redis-based caching
+        // The original memcached client creation is removed and replaced with Redis configuration
+        throw new UnsupportedOperationException("Memcached client is deprecated. Use Redis-based caching instead.");
     }
 
-    private MemcachedClientBuilder builder(MemcachedCacheProperties.Provider provider, List<InetSocketAddress> servers) {
-        switch (provider) {
-            case STATIC:
-                return new XMemcachedClientBuilder(servers);
-            case AWS:
-                return new AWSElasticCacheClientBuilder(servers);
-            default:
-                throw new IllegalArgumentException(String.format("Invalid provider=%s for the XMemcached configuration", provider));
-        }
+    // Placeholder for Redis-based implementation
+    // This would typically involve creating a RedisCacheManager using RedisConnectionFactory
+    // and setting up appropriate serializers for caching operations
+    protected RedisCacheManager createRedisCacheManager(RedisConnectionFactory connectionFactory) {
+        return RedisCacheManager.builder(connectionFactory)
+                .withDefaultCacheConfig()
+                .build();
     }
 
-    private CommandFactory commandFactory(MemcachedCacheProperties.Protocol protocol) {
-        switch (protocol) {
-            case TEXT:
-                return new TextCommandFactory();
-            case BINARY:
-                return new BinaryCommandFactory();
-            default:
-                throw new IllegalArgumentException("Invalid protocol for the XMemcached configuration");
-        }
-    }
-
-    private MemcachedSessionLocator hashStrategyToLocator(MemcachedCacheProperties.HashStrategy hashStrategy) {
-        switch (hashStrategy) {
-            case STANDARD:
-                return new ArrayMemcachedSessionLocator();
-            case LIBMEMCACHED:
-                return new LibmemcachedMemcachedSessionLocator();
-            case KETAMA:
-                return new KetamaMemcachedSessionLocator();
-            case PHP:
-                return new PHPMemcacheSessionLocator();
-            case ELECTION:
-                return new ElectionMemcachedSessionLocator();
-            case ROUNDROBIN:
-                return new RoundRobinMemcachedSessionLocator();
-            case RANDOM:
-                return new RandomMemcachedSessionLocaltor();
-            default:
-                throw new IllegalArgumentException("Invalid hash strategy for the XMemcached configuration");
-        }
+    // Placeholder for Redis template configuration
+    protected RedisTemplate<String, Object> createRedisTemplate(RedisConnectionFactory connectionFactory) {
+        RedisTemplate<String, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(connectionFactory);
+        template.setKeySerializer(new StringRedisSerializer());
+        template.setValueSerializer(new org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer());
+        return template;
     }
 }

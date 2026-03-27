@@ -19,8 +19,16 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.springframework.data.redis.cache.RedisCacheConfiguration;
+import org.springframework.data.redis.cache.RedisCacheManager;
+import org.springframework.data.redis.connection.RedisConnectionFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.serializer.GenericJackson2JsonRedisSerializer;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
+import org.springframework.data.redis.serializer.StringRedisSerializer;
+
 /**
- * Factory for the {@link MemcachedCacheManager} instances.
+ * Factory for the {@link RedisCacheManager} instances.
  *
  * @author Igor Bolic
  * @author Sasa Bolic
@@ -33,19 +41,28 @@ public abstract class MemcachedCacheManagerFactory {
         this.properties = properties;
     }
 
-    public MemcachedCacheManager create() throws IOException {
-        final DisposableMemcachedCacheManager cacheManager = new DisposableMemcachedCacheManager(memcachedClient());
+    public RedisCacheManager create() throws IOException {
+        final RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
+                .serializeKeysWith(RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
+                .serializeValuesWith(RedisSerializationContext.SerializationPair.fromSerializer(new GenericJackson2JsonRedisSerializer()))
+                .entryTtl(java.time.Duration.ofSeconds(properties.getExpiration().getSeconds()));
 
-        cacheManager.setExpiration((int) properties.getExpiration().getSeconds());
-        cacheManager.setExpirationPerCache(properties.getExpirationPerCache().entrySet().stream()
-                .collect(Collectors.toMap(Map.Entry::getKey, e -> (int) e.getValue().getSeconds())));
-        cacheManager.setDisabledCacheNames(properties.getDisabledCacheNames());
-        cacheManager.setMetricsCacheNames(properties.getMetricsCacheNames());
-        cacheManager.setPrefix(properties.getPrefix());
-        cacheManager.setNamespace(Default.NAMESPACE);
+        final RedisCacheManager cacheManager = RedisCacheManager.builder(connectionFactory())
+                .withInitialCacheConfigurations(
+                        properties.getExpirationPerCache().entrySet().stream()
+                                .collect(Collectors.toMap(
+                                        Map.Entry::getKey,
+                                        e -> RedisCacheConfiguration.defaultCacheConfig()
+                                                .entryTtl(java.time.Duration.ofSeconds(e.getValue().getSeconds()))
+                                ))
+                )
+                .withDisabledCacheNames(properties.getDisabledCacheNames())
+                .withMetricsCacheNames(properties.getMetricsCacheNames())
+                .withCacheDefaults(config)
+                .build();
 
         return cacheManager;
     }
 
-    abstract IMemcachedClient memcachedClient() throws IOException;
+    abstract RedisConnectionFactory connectionFactory() throws IOException;
 }

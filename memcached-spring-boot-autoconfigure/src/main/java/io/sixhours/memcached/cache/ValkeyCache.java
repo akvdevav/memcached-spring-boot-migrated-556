@@ -26,16 +26,16 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Cache implementation on top of Memcached.
+ * Cache implementation on top of Valkey (Redis-compatible).
  *
  * @author Igor Bolic
  */
-public class MemcachedCache extends AbstractValueAdaptingCache {
+public class ValkeyCache extends AbstractValueAdaptingCache {
 
     private static final String KEY_DELIMITER = ":";
 
-    private final IMemcachedClient memcachedClient;
-    private final MemcacheCacheMetadata memcacheCacheMetadata;
+    private final IValkeyClient valkeyClient;
+    private final ValkeyCacheMetadata valkeyCacheMetadata;
 
     private final Lock lock = new ReentrantLock();
 
@@ -45,49 +45,49 @@ public class MemcachedCache extends AbstractValueAdaptingCache {
     private final AtomicLong evictions = new AtomicLong();
 
     /**
-     * Create an {@code MemcachedCache} with the given settings.
+     * Create an {@code ValkeyCache} with the given settings.
      *
-     * @param name            Cache name
-     * @param memcachedClient {@link IMemcachedClient}
-     * @param expiration      Cache expiration in seconds
-     * @param prefix          Cache key prefix
-     * @param namespace       Cache invalidation namespace key
-     * @param clock           Cache expiration clock
+     * @param name           Cache name
+     * @param valkeyClient   {@link IValkeyClient}
+     * @param expiration     Cache expiration in seconds
+     * @param prefix         Cache key prefix
+     * @param namespace      Cache invalidation namespace key
+     * @param clock          Cache expiration clock
      */
-    public MemcachedCache(String name, IMemcachedClient memcachedClient, int expiration, String prefix, String namespace, Clock clock) {
+    public ValkeyCache(String name, IValkeyClient valkeyClient, int expiration, String prefix, String namespace, Clock clock) {
         super(true);
-        this.memcachedClient = memcachedClient;
-        this.memcacheCacheMetadata = new MemcacheCacheMetadata(name, expiration, prefix, namespace, clock);
+        this.valkeyClient = valkeyClient;
+        this.valkeyCacheMetadata = new ValkeyCacheMetadata(name, expiration, prefix, namespace, clock);
     }
 
     /**
-     * Create an {@code MemcachedCache} with the given settings.
+     * Create an {@code ValkeyCache} with the given settings.
      * <p>
      * Uses the UTC timezone system clock as default expiration time clock.
      *
-     * @param name            Cache name
-     * @param memcachedClient {@link IMemcachedClient}
-     * @param expiration      Cache expiration in seconds
-     * @param prefix          Cache key prefix
-     * @param namespace       Cache invalidation namespace key
+     * @param name           Cache name
+     * @param valkeyClient   {@link IValkeyClient}
+     * @param expiration     Cache expiration in seconds
+     * @param prefix         Cache key prefix
+     * @param namespace      Cache invalidation namespace key
      */
-    public MemcachedCache(String name, IMemcachedClient memcachedClient, int expiration, String prefix, String namespace) {
-        this(name, memcachedClient, expiration, prefix, namespace, Clock.systemUTC());
+    public ValkeyCache(String name, IValkeyClient valkeyClient, int expiration, String prefix, String namespace) {
+        this(name, valkeyClient, expiration, prefix, namespace, Clock.systemUTC());
     }
 
     @Override
     protected Object lookup(Object key) {
-        return trackHitsMisses(memcachedClient.get(memcachedKey(key)));
+        return trackHitsMisses(valkeyClient.get(memcachedKey(key)));
     }
 
     @Override
     public String getName() {
-        return this.memcacheCacheMetadata.name();
+        return this.valkeyCacheMetadata.name();
     }
 
     @Override
     public Object getNativeCache() {
-        return this.memcachedClient;
+        return this.valkeyClient;
     }
 
     @SuppressWarnings("unchecked")
@@ -124,8 +124,8 @@ public class MemcachedCache extends AbstractValueAdaptingCache {
 
     @Override
     public void put(Object key, Object value) {
-        this.memcachedClient.set(memcachedKey(key), this.memcacheCacheMetadata.expiration(), toStoreValue(value));
-        this.memcachedClient.touch(this.memcacheCacheMetadata.namespaceKey(), this.memcacheCacheMetadata.expiration());
+        this.valkeyClient.set(memcachedKey(key), this.valkeyCacheMetadata.expiration(), toStoreValue(value));
+        this.valkeyClient.touch(this.valkeyCacheMetadata.namespaceKey(), this.valkeyCacheMetadata.expiration());
         puts.incrementAndGet();
     }
 
@@ -142,13 +142,13 @@ public class MemcachedCache extends AbstractValueAdaptingCache {
 
     @Override
     public void evict(Object key) {
-        this.memcachedClient.delete(memcachedKey(key));
+        this.valkeyClient.delete(memcachedKey(key));
         this.evictions.incrementAndGet();
     }
 
     @Override
     public void clear() {
-        this.memcachedClient.incr(this.memcacheCacheMetadata.namespaceKey(), 1);
+        this.valkeyClient.incr(this.valkeyCacheMetadata.namespaceKey(), 1);
     }
 
     public long hits() {
@@ -168,7 +168,7 @@ public class MemcachedCache extends AbstractValueAdaptingCache {
     }
 
     /**
-     * Tracks number of hits and misses per {@code MemcachedCache} instance.
+     * Tracks number of hits and misses per {@code ValkeyCache} instance.
      *
      * @param value Value returned from the underlying cache store.
      * @return The value
@@ -183,16 +183,16 @@ public class MemcachedCache extends AbstractValueAdaptingCache {
     }
 
     /**
-     * Gets Memcached key value.
+     * Gets Valkey key value.
      * <p>
      * Prepends cache prefix and namespace value to the given {@code key}. All whitespace characters will be stripped from
-     * the {@code key} value, for Memcached key to be valid.
+     * the {@code key} value, for Valkey key to be valid.
      *
      * @param key The key
-     * @return Memcached key
+     * @return Valkey key
      */
     private String memcachedKey(Object key) {
-        return memcacheCacheMetadata.keyPrefix() +
+        return valkeyCacheMetadata.keyPrefix() +
                 namespaceValue() +
                 KEY_DELIMITER +
                 String.valueOf(key).replaceAll("\\s", "");
@@ -205,24 +205,24 @@ public class MemcachedCache extends AbstractValueAdaptingCache {
      * @return Namespace integer value returned as {@code String}
      */
     private String namespaceValue() {
-        String value = (String) this.memcachedClient.get(this.memcacheCacheMetadata.namespaceKey());
+        String value = (String) this.valkeyClient.get(this.valkeyCacheMetadata.namespaceKey());
         if (value == null) {
             value = String.valueOf(System.currentTimeMillis());
-            this.memcachedClient.set(this.memcacheCacheMetadata.namespaceKey(),
-                    this.memcacheCacheMetadata.expiration(), value);
+            this.valkeyClient.set(this.valkeyCacheMetadata.namespaceKey(),
+                    this.valkeyCacheMetadata.expiration(), value);
         }
 
         return value;
     }
 
-    static class MemcacheCacheMetadata {
+    static class ValkeyCacheMetadata {
         private final String name;
         private final int expiration;
         private final String keyPrefix;
         private final String namespaceKey;
         private final Clock clock;
 
-        public MemcacheCacheMetadata(String name, int expiration, String cachePrefix, String namespace, Clock clock) {
+        public ValkeyCacheMetadata(String name, int expiration, String cachePrefix, String namespace, Clock clock) {
             this.name = name;
             this.expiration = expiration;
 
